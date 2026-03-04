@@ -114,23 +114,28 @@ class GDALOverviewBand final: public GDALProxyRasterBand
   protected:
     friend class GDALOverviewDataset;
 
-    GDALRasterBand*         poUnderlyingBand = nullptr;
-    GDALRasterBand* RefUnderlyingRasterBand() override;
+    mutable GDALRasterBand* poUnderlyingBand;
+    GDALOverviewDataset* m_poDS;
+    int m_nBand;
+
+    // RefUnderlyingRasterBand - 已经有正确签名
+    virtual GDALRasterBand* RefUnderlyingRasterBand(bool bForceOpen = true) const override;
 
   public:
     GDALOverviewBand( GDALOverviewDataset* poDS, int nBand );
     ~GDALOverviewBand() override;
 
-    CPLErr FlushCache() override;
+    // 修正 FlushCache 签名 - 添加 bool 参数
+    CPLErr FlushCache(bool bAtClosing) override;
 
     int GetOverviewCount() override;
     GDALRasterBand *GetOverview( int ) override;
 
     int GetMaskFlags() override;
     GDALRasterBand* GetMaskBand() override;
-
-  private:
-    CPL_DISALLOW_COPY_ASSIGN(GDALOverviewBand)
+    
+    // 声明 IReadBlock
+    CPLErr IReadBlock(int nBlockXOff, int nBlockYOff, void* pImage) override;
 };
 
 /************************************************************************/
@@ -551,11 +556,16 @@ const char *GDALOverviewDataset::GetMetadataItem( const char * pszName,
 /************************************************************************/
 
 GDALOverviewBand::GDALOverviewBand( GDALOverviewDataset* poDSIn, int nBandIn )
+    : poUnderlyingBand(nullptr), 
+      m_poDS(poDSIn), 
+      m_nBand(nBandIn)
 {
     poDS = poDSIn;
     nBand = nBandIn;
     nRasterXSize = poDSIn->nRasterXSize;
     nRasterYSize = poDSIn->nRasterYSize;
+    
+    // 初始化 poUnderlyingBand
     if( nBandIn == 0 )
     {
         poUnderlyingBand = poDSIn->poMainDS->GetRasterBand(1)->
@@ -566,8 +576,12 @@ GDALOverviewBand::GDALOverviewBand( GDALOverviewDataset* poDSIn, int nBandIn )
         poUnderlyingBand = poDSIn->poMainDS->GetRasterBand(nBandIn)->
                             GetOverview(poDSIn->nOvrLevel);
     }
-    eDataType = poUnderlyingBand->GetRasterDataType();
-    poUnderlyingBand->GetBlockSize(&nBlockXSize, &nBlockYSize);
+    
+    if (poUnderlyingBand)
+    {
+        eDataType = poUnderlyingBand->GetRasterDataType();
+        poUnderlyingBand->GetBlockSize(&nBlockXSize, &nBlockYSize);
+    }
 }
 
 /************************************************************************/
@@ -576,17 +590,18 @@ GDALOverviewBand::GDALOverviewBand( GDALOverviewDataset* poDSIn, int nBandIn )
 
 GDALOverviewBand::~GDALOverviewBand()
 {
-    GDALOverviewBand::FlushCache();
+    // 正确调用：直接调用 FlushCache 函数，传入 false 参数
+    FlushCache(false);
 }
 
 /************************************************************************/
-/*                              FlushCache()                            */
+/*                              FlushCache(bool)                        */
 /************************************************************************/
 
-CPLErr GDALOverviewBand::FlushCache()
+CPLErr GDALOverviewBand::FlushCache(bool bAtClosing)
 {
-    if( poUnderlyingBand )
-        return poUnderlyingBand->FlushCache();
+    if (poUnderlyingBand)
+        return poUnderlyingBand->FlushCache(bAtClosing);
     return CE_None;
 }
 
@@ -594,12 +609,22 @@ CPLErr GDALOverviewBand::FlushCache()
 /*                        RefUnderlyingRasterBand()                     */
 /************************************************************************/
 
-GDALRasterBand* GDALOverviewBand::RefUnderlyingRasterBand()
+GDALRasterBand* GDALOverviewBand::RefUnderlyingRasterBand(bool bForceOpen) const
 {
-    if( poUnderlyingBand )
-        return poUnderlyingBand;
-
-    return nullptr;
+    // 注意：这个函数现在是 const，但我们需要修改 poUnderlyingBand
+    // 由于 poUnderlyingBand 是在构造函数中设置的，而且不会改变，
+    // 我们可以安全地返回它
+    
+    // 如果 bForceOpen 为 true，可能需要确保 band 是打开的
+    // 但 poUnderlyingBand 应该总是有效的
+    if (bForceOpen && poUnderlyingBand == nullptr)
+    {
+        // 如果需要强制打开但 band 为 null，尝试重新获取
+        // 这里可以添加重新初始化的逻辑
+        return nullptr;
+    }
+    
+    return poUnderlyingBand;
 }
 
 /************************************************************************/
@@ -668,4 +693,40 @@ GDALRasterBand* GDALOverviewBand::GetMaskBand()
     if( nBand != 0 && poOvrDS->m_poMaskBand )
         return poOvrDS->m_poMaskBand;
     return GDALProxyRasterBand::GetMaskBand();
+}
+
+/************************************************************************/
+/*                           IReadBlock()                               */
+/************************************************************************/
+
+CPLErr GDALOverviewBand::IReadBlock(int nBlockXOff, int nBlockYOff, void* pImage)
+{
+    // 确保底层 band 可用
+    if (poUnderlyingBand == nullptr)
+    {
+        // 尝试重新获取
+        if (m_poDS != nullptr && m_poDS->poMainDS != nullptr)
+        {
+            if (m_nBand == 0)
+            {
+                poUnderlyingBand = m_poDS->poMainDS->GetRasterBand(1)->
+                                    GetOverview(m_poDS->nOvrLevel)->GetMaskBand();
+            }
+            else
+            {
+                poUnderlyingBand = m_poDS->poMainDS->GetRasterBand(m_nBand)->
+                                    GetOverview(m_poDS->nOvrLevel);
+            }
+        }
+        
+        if (poUnderlyingBand == nullptr)
+        {
+            CPLError(CE_Failure, CPLE_AppDefined, 
+                     "Underlying raster band is not available");
+            return CE_Failure;
+        }
+    }
+    
+    // 委托给底层 band 的 ReadBlock
+    return poUnderlyingBand->ReadBlock(nBlockXOff, nBlockYOff, pImage);
 }
