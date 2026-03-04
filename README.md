@@ -379,3 +379,34 @@ Thanks to everyone in the community who has contributed to the code base.
 ## Contact
 
 Homme Zwaagstra <hrz@geodata.soton.ac.uk>
+
+## myself
+
+### cmake配置
+在cmakeGUI中，配置以下变量
+```sh
+GDAL_INCLUDE_DIR=F:/vcpkg/installed/x64-windows/include
+GDAL_LIBRARY=F:/vcpkg/installed/x64-windows/lib/gdal.lib
+ZLIB_INCLUDE_DIR=F:/vcpkg/installed/x64-windows/include
+ZLIB_LIBRARY_DEBUG=F:/vcpkg/installed/x64-windows/lib/zlib.lib
+ZLIB_LIBRARY_RELEASE=F:/vcpkg/installed/x64-windows/lib/zlib.lib
+
+点击 Configure，然后 Generate
+在vs中编译或者
+
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=F:/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake --build . --config Release
+```
+### ctb-tile不压缩
+```sh
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=F:/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake --build . --config Release
+```
+### 注意
+CTBFileTileSerializer 是一个导出类（CTB_DLL），添加了 mUseGzip 成员变量，类的大小和布局改变了，需要重新编译
+```sh
+cd F:\vcpkg\cesium-terrain-builder\build
+rm -rf *
+cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=F:/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake --build . --config Release --clean-first
+```
