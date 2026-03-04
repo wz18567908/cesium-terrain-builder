@@ -14,10 +14,10 @@
  * under the License.
  *******************************************************************************/
 
-/**
- * @file CTBFileTileSerializer.cpp
- * @brief This defines the `CTBFileTileSerializer` class
- */
+ /**
+  * @file CTBFileTileSerializer.cpp
+  * @brief This defines the `CTBFileTileSerializer` class
+  */
 
 #include <stdio.h>
 #include <string.h>
@@ -35,135 +35,171 @@ using namespace std;
 using namespace ctb;
 
 #ifdef _WIN32
-static const char *osDirSep = "\\";
+static const char* osDirSep = "\\";
 #else
-static const char *osDirSep = "/";
+static const char* osDirSep = "/";
 #endif
 
 
 /// Create a filename for a tile coordinate
 std::string
-ctb::CTBFileTileSerializer::getTileFilename(const TileCoordinate *coord, const string dirname, const char *extension) {
-  static mutex mutex;
-  VSIStatBufL stat;
-  string filename = concat(dirname, coord->zoom, osDirSep, coord->x);
+ctb::CTBFileTileSerializer::getTileFilename(const TileCoordinate* coord, const string dirname, const char* extension) {
+    static mutex mutex;
+    VSIStatBufL stat;
+    string filename = concat(dirname, coord->zoom, osDirSep, coord->x);
 
-  lock_guard<std::mutex> lock(mutex);
+    lock_guard<std::mutex> lock(mutex);
 
-  // Check whether the `{zoom}/{x}` directory exists or not
-  if (VSIStatExL(filename.c_str(), &stat, VSI_STAT_EXISTS_FLAG | VSI_STAT_NATURE_FLAG)) {
-    filename = concat(dirname, coord->zoom);
-
-    // Check whether the `{zoom}` directory exists or not
+    // Check whether the `{zoom}/{x}` directory exists or not
     if (VSIStatExL(filename.c_str(), &stat, VSI_STAT_EXISTS_FLAG | VSI_STAT_NATURE_FLAG)) {
-      // Create the `{zoom}` directory
-      if (VSIMkdir(filename.c_str(), 0755))
-        throw CTBException("Could not create the zoom level directory");
+        filename = concat(dirname, coord->zoom);
 
-    } else if (!VSI_ISDIR(stat.st_mode)) {
-      throw CTBException("Zoom level file path is not a directory");
+        // Check whether the `{zoom}` directory exists or not
+        if (VSIStatExL(filename.c_str(), &stat, VSI_STAT_EXISTS_FLAG | VSI_STAT_NATURE_FLAG)) {
+            // Create the `{zoom}` directory
+            if (VSIMkdir(filename.c_str(), 0755))
+                throw CTBException("Could not create the zoom level directory");
+
+        }
+        else if (!VSI_ISDIR(stat.st_mode)) {
+            throw CTBException("Zoom level file path is not a directory");
+        }
+
+        // Create the `{zoom}/{x}` directory
+        filename += concat(osDirSep, coord->x);
+        if (VSIMkdir(filename.c_str(), 0755))
+            throw CTBException("Could not create the x level directory");
+
+    }
+    else if (!VSI_ISDIR(stat.st_mode)) {
+        throw CTBException("X level file path is not a directory");
     }
 
-    // Create the `{zoom}/{x}` directory
-    filename += concat(osDirSep, coord->x);
-    if (VSIMkdir(filename.c_str(), 0755))
-      throw CTBException("Could not create the x level directory");
+    // Create the filename itself, adding the extension if required
+    filename += concat(osDirSep, coord->y);
+    if (extension != NULL) {
+        filename += ".";
+        filename += extension;
+    }
 
-  } else if (!VSI_ISDIR(stat.st_mode)) {
-    throw CTBException("X level file path is not a directory");
-  }
-
-  // Create the filename itself, adding the extension if required
-  filename += concat(osDirSep, coord->y);
-  if (extension != NULL) {
-    filename += ".";
-    filename += extension;
-  }
-
-  return filename;
+    return filename;
 }
 
 /// Check if file exists
 static bool
 fileExists(const std::string& filename) {
-  VSIStatBufL statbuf;
-  return VSIStatExL(filename.c_str(), &statbuf, VSI_STAT_EXISTS_FLAG) == 0;
+    VSIStatBufL statbuf;
+    return VSIStatExL(filename.c_str(), &statbuf, VSI_STAT_EXISTS_FLAG) == 0;
 }
 
 
 /**
- * @details 
+ * @details
  * Returns if the specified Tile Coordinate should be serialized
  */
-bool ctb::CTBFileTileSerializer::mustSerializeCoordinate(const ctb::TileCoordinate *coordinate) {
-  if (!mresume)
-    return true;
+bool ctb::CTBFileTileSerializer::mustSerializeCoordinate(const ctb::TileCoordinate* coordinate) {
+    if (!mresume)
+        return true;
 
-  const string filename = getTileFilename(coordinate, moutputDir, "terrain");
-  return !fileExists(filename);
+    const string filename = getTileFilename(coordinate, moutputDir, "terrain");
+    return !fileExists(filename);
 }
 
 /**
- * @details 
+ * @details
  * Serialize a GDALTile to the Directory store
  */
-bool 
-ctb::CTBFileTileSerializer::serializeTile(const ctb::GDALTile *tile, GDALDriver *driver, const char *extension, CPLStringList &creationOptions) {
-  const TileCoordinate *coordinate = tile;
-  const string filename = getTileFilename(coordinate, moutputDir, extension);
-  const string temp_filename = concat(filename, ".tmp");
+bool
+ctb::CTBFileTileSerializer::serializeTile(const ctb::GDALTile* tile, GDALDriver* driver, const char* extension, CPLStringList& creationOptions) {
+    const TileCoordinate* coordinate = tile;
+    const string filename = getTileFilename(coordinate, moutputDir, extension);
+    const string temp_filename = concat(filename, ".tmp");
 
-  GDALDataset *poDstDS;
-  poDstDS = driver->CreateCopy(temp_filename.c_str(), tile->dataset, FALSE, creationOptions, NULL, NULL);
+    GDALDataset* poDstDS;
+    poDstDS = driver->CreateCopy(temp_filename.c_str(), tile->dataset, FALSE, creationOptions, NULL, NULL);
 
-  // Close the datasets, flushing data to destination
-  if (poDstDS == NULL) {
-    throw CTBException("Could not create GDAL tile");
-  }
-  GDALClose(poDstDS);
+    // Close the datasets, flushing data to destination
+    if (poDstDS == NULL) {
+        throw CTBException("Could not create GDAL tile");
+    }
+    GDALClose(poDstDS);
 
-  if (VSIRename(temp_filename.c_str(), filename.c_str()) != 0) {
-    throw CTBException("Could not rename temporary file");
-  }
-  return true;
+    if (VSIRename(temp_filename.c_str(), filename.c_str()) != 0) {
+        throw CTBException("Could not rename temporary file");
+    }
+    return true;
 }
 
 /**
- * @details 
+ * @details
  * Serialize a TerrainTile to the Directory store
  */
 bool
-ctb::CTBFileTileSerializer::serializeTile(const ctb::TerrainTile *tile) {
-  const TileCoordinate *coordinate = tile;
-  const string filename = getTileFilename(tile, moutputDir, "terrain");
-  const string temp_filename = concat(filename, ".tmp");
+ctb::CTBFileTileSerializer::serializeTile(const ctb::TerrainTile* tile) {
+    const TileCoordinate* coordinate = tile;
+    const string filename = getTileFilename(tile, moutputDir, "terrain");
+    const string temp_filename = concat(filename, ".tmp");
 
-  CTBZFileOutputStream ostream(temp_filename.c_str());
-  tile->writeFile(ostream);
-  ostream.close();
+    // 根据 mUseGzip 标志选择输出流
+    if (mUseGzip) {
+        // 使用gzip压缩
+        CTBZFileOutputStream ostream(temp_filename.c_str());
+        tile->writeFile(ostream);
+        ostream.close();
+    }
+    else {
+        // 不压缩，使用 FILE* 方式
+        FILE* fp = VSIFOpen(temp_filename.c_str(), "wb");
+        if (!fp) {
+            // 使用 c_str() 将 std::string 转换为 const char*
+            string errorMsg = "Could not open file for writing: " + temp_filename;
+            throw CTBException(errorMsg.c_str());
+        }
 
-  if (VSIRename(temp_filename.c_str(), filename.c_str()) != 0) {
-    throw CTBException("Could not rename temporary file");
-  }
-  return true;
+        CTBFileOutputStream ostream(fp);
+        tile->writeFile(ostream);
+        VSIFClose(fp);
+    }
+
+    if (VSIRename(temp_filename.c_str(), filename.c_str()) != 0) {
+        throw CTBException("Could not rename temporary file");
+    }
+    return true;
 }
 
 /**
- * @details 
+ * @details
  * Serialize a MeshTile to the Directory store
  */
 bool
-ctb::CTBFileTileSerializer::serializeTile(const ctb::MeshTile *tile, bool writeVertexNormals) {
-  const TileCoordinate *coordinate = tile;
-  const string filename = getTileFilename(coordinate, moutputDir, "terrain");
-  const string temp_filename = concat(filename, ".tmp");
+ctb::CTBFileTileSerializer::serializeTile(const ctb::MeshTile* tile, bool writeVertexNormals) {
+    const TileCoordinate* coordinate = tile;
+    const string filename = getTileFilename(coordinate, moutputDir, "terrain");
+    const string temp_filename = concat(filename, ".tmp");
 
-  CTBZFileOutputStream ostream(temp_filename.c_str());
-  tile->writeFile(ostream, writeVertexNormals);
-  ostream.close();
+    // 根据 mUseGzip 标志选择输出流
+    if (mUseGzip) {
+        // 使用gzip压缩
+        CTBZFileOutputStream ostream(temp_filename.c_str());
+        tile->writeFile(ostream, writeVertexNormals);
+        ostream.close();
+    }
+    else {
+        // 不压缩，使用 FILE* 方式
+        FILE* fp = VSIFOpen(temp_filename.c_str(), "wb");
+        if (!fp) {
+            // 使用 c_str() 将 std::string 转换为 const char*
+            string errorMsg = "Could not open file for writing: " + temp_filename;
+            throw CTBException(errorMsg.c_str());
+        }
 
-  if (VSIRename(temp_filename.c_str(), filename.c_str()) != 0) {
-    throw CTBException("Could not rename temporary file");
-  }
-  return true;
+        CTBFileOutputStream ostream(fp);
+        tile->writeFile(ostream, writeVertexNormals);
+        VSIFClose(fp);
+    }
+
+    if (VSIRename(temp_filename.c_str(), filename.c_str()) != 0) {
+        throw CTBException("Could not rename temporary file");
+    }
+    return true;
 }

@@ -39,9 +39,10 @@ class CTB_DLL ctb::CTBFileTileSerializer :
   public ctb::TerrainSerializer, 
   public ctb::MeshSerializer {
 public:
-  CTBFileTileSerializer(const std::string &outputDir, bool resume):
+  CTBFileTileSerializer(const std::string &outputDir, bool resume, bool useGzip = true):
     moutputDir(outputDir), 
-    mresume(resume) {}
+    mresume(resume),
+    mUseGzip(useGzip) {}
 
   /// Start a new serialization task
   virtual void startSerialization() {};
@@ -69,6 +70,7 @@ protected:
   std::string moutputDir;
   /// Do not overwrite existing files
   bool mresume;
+  bool mUseGzip;
 };
 
 #endif /* CTBFILETILESERIALIZER_HPP */

@@ -80,7 +80,8 @@ public:
     meshQualityFactor(1.0),
     metadata(false),
     cesiumFriendly(false),
-    vertexNormals(false)
+    vertexNormals(false),
+    useGzip(true)  // 新增：默认使用gzip压缩（保持原有行为）
   {}
 
   void
@@ -147,6 +148,11 @@ public:
   static void
   setResume(command_t* command) {
     static_cast<TerrainBuild *>(Command::self(command))->resume = true;
+  }
+
+  static void
+      setNoGzip(command_t* command) {
+      static_cast<TerrainBuild*>(Command::self(command))->useGzip = false;
   }
 
   static void
@@ -244,6 +250,7 @@ public:
   bool metadata;
   bool cesiumFriendly;
   bool vertexNormals;
+  bool useGzip;  // 新增：是否使用gzip压缩的标志
 };
 
 /**
@@ -718,7 +725,7 @@ runTiler(const char *inputFilename, TerrainBuild *command, Grid *grid, TerrainMe
   TerrainMetadata *threadMetadata = metadata ? new TerrainMetadata() : NULL;
 
   // Choose serializer of tiles (Directory of files, MBTiles store...)
-  CTBFileTileSerializer serializer(string(command->outputDir) + osDirSep, command->resume);
+  CTBFileTileSerializer serializer(string(command->outputDir) + osDirSep, command->resume, command->useGzip);
 
   try {
     serializer.startSerialization();
@@ -778,6 +785,8 @@ main(int argc, char *argv[]) {
   command.option("-N", "--vertex-normals", "Write 'Oct-Encoded Per-Vertex Normals' for Terrain Lighting, only for `Mesh` format", TerrainBuild::setVertexNormals);
   command.option("-q", "--quiet", "only output errors", TerrainBuild::setQuiet);
   command.option("-v", "--verbose", "be more noisy", TerrainBuild::setVerbose);
+  // 添加新的命令行选项：--no-gzip 或 -G
+  command.option("-G", "--no-gzip", "disable gzip compression (output uncompressed terrain files)", TerrainBuild::setNoGzip);
 
   // Parse and check the arguments
   command.parse(argc, argv);
