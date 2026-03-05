@@ -410,3 +410,11 @@ rm -rf *
 cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=F:/vcpkg/scripts/buildsystems/vcpkg.cmake
 cmake --build . --config Release --clean-first
 ```
+如果在运行过程中程序不报错，也没有输出，查看windows日志，win+R eventvwr.msc
+### 使用
+```sh
+# 生成terrain文件
+ctb-tile.exe -f Mesh -G -o ..\tiles ..\dem001.tif
+# 生成layer.json
+ctb-tile.exe -f Mesh -l -o ..\tiles ..\dem001.tif
+```
